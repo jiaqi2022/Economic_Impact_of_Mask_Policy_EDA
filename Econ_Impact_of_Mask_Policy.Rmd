@@ -1,0 +1,270 @@
+
+# The Economic Impact of Retail Mask Policies
+
+On May 13, 2021, the Centers for Disease Control and Prevention (CDC) announced that people who have completed the New Crown Pneumonia vaccination are no longer required to wear masks in most settings and are no longer required to maintain social distance from others. Major retail brands have reacted quickly to this mask reversal policy, and several major supermarket chains and merchants, including Walmart, have already rescinded or re-evaluated their mask requirements. It is not difficult to infer that the change in mask policy would have a significant impact on consumer psychology and consumer behavior. Therefore, in this project, I start from this mask reversal and use the mask reversal implemented by Walmart on May 18 as a sample to study how changes in retail policies regarding mask use affect consumer behavior. At the same time, we will consider how factors such as vaccination hesitancy and partisanship will play into this impact. 
+
+The main elements of this project are as follows: In the fist part, I will introduce the raw data, do the basic processing, and also cover the basic exploratory data analysis. The second part is about the graphical exploratory data analysis. I will display some maps showing the location of Walmart stores in the county or state as an overview of the dataset. Several time series plots of the average foot traffic (by day) at Walmart stores over a 28-day period will be created to evaluate the effect of mask reversal policy. In the third part, I will use a multiple linear regression model to investigate specific impact of the reversal policy and further explores it by adding a series of mediating variables. Also, there will be some basic correlation analysis and plots.
+
+```{r load libraries, message = FALSE}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(ggsignif)
+library(usmap)
+library(corrplot)
+library(stargazer)
+```
+
+## Part 1. Data Processing and Basic Exploratory Data Analysis
+
+### 1.1 Data Source
+
+The data selected for this project are drawn from the Safegraph database and CDC official website (Data.CDC.gov), which includes retail data of the full month in May for 56 U.S. states and estimated vaccine hesitancy data. ALso, the state fips code file (https://gist.github.com/dantonnoriega/bf1acd2290e15b91e6710b6fd3be0a53) and vote data (https://electionlab.mit.edu/data) are grabbed from open sources of the website.
+
+### 1.2 Import Raw Dataset
+
+```{r import datasets}
+retail_fips <- read.csv("~/Desktop/GRADUATE/Semster2/R for Analytics/Project/Datasets/retail_data_export_w_fips.csv", stringsAsFactors=TRUE)
+state_code <- read.csv("~/Desktop/GRADUATE/Semster2/R for Analytics/Project/Datasets/state_code.csv", stringsAsFactors=TRUE)
+vote2020 <- read.csv("~/Desktop/GRADUATE/Semster2/R for Analytics/Project/Datasets/vote2020.csv", stringsAsFactors=TRUE)
+county_week26_data_fixed <- read.csv("~/Desktop/GRADUATE/Semster2/R for Analytics/Project/Datasets/county_week26_data_fixed.csv", stringsAsFactors=TRUE)
+```
+
+### 1.3 Data Processing
+
+```{r Data Processing}
+# Limit the periods of 28 days from 5.4-5.31
+wal_data <- subset(retail_fips, dayofmonth >= 4 & dayofmonth <= 31)
+
+# Mean process: (average_foot_traffic = mean of daily_visitors) to calculate the average number of daily_visitors for each day
+retail_wal <- wal_data %>%
+  group_by(dayofmonth) %>%
+  summarize(
+    count = n(),
+    average_foot_traffic = mean(daily_visitors)
+  )
+
+# Combine the dataset
+wal_state <- subset(wal_data, select = -c(fips))
+wal <- left_join(wal_state,state_code,by="STATEFP")
+
+# Merge the data - create the relationship between state name and statefp
+vote2020_0 <- vote2020 %>%
+  dplyr::select(county_fips,state_name)
+
+retail_4 <- retail_fips %>%
+  left_join(vote2020_0, by = c("fips" = "county_fips"))
+
+plot_com <- retail_4 %>%
+  group_by(state_name,dayofmonth) %>%
+  summarize(mean_visitors = mean(daily_visitors))
+
+# Prepare for boxplot and regression 1
+retail_wal_2 <- retail_wal %>% mutate(post = if_else(dayofmonth > 17, 1, 0))
+retail_fips <- retail_fips %>% mutate(post = if_else(dayofmonth > 17, 1, 0))
+
+# Prepare for regression 2
+# Subset our data, keeping only the columns we care about
+vote2020_1 <- vote2020 %>%
+  dplyr::select(county_fips,per_gop)
+
+retail_new <- retail_fips %>%
+  left_join(vote2020_1, by = c("fips" = "county_fips"))
+
+# Add another variable
+vaccine_hesitancy <- county_week26_data_fixed %>%
+  dplyr::select(FIPS_Code,Estimated_hesitant)
+
+retail_new <- retail_new %>%
+  left_join(vaccine_hesitancy, by = c("fips" = "FIPS_Code"))
+
+# Add dummy variable 1: trump
+retail_new <- retail_new %>% mutate(trump = if_else(per_gop >= 0.5, 1, 0))
+
+# Add dummy variable 2: vaccine_hes
+# Seek for mean of vaccine hesitancy rate 
+VHM = mean(retail_new$Estimated_hesitant, na.rm = TRUE)
+retail_new <- retail_new %>% mutate(vaccine_hes = if_else(Estimated_hesitant >= VHM, 1, 0))
+
+# Correlation Analysis Preparation
+retail_final <- subset(retail_new, select = c(daily_visitors,Estimated_hesitant,per_gop,post,trump,vaccine_hes,COUNTYFP,STATEFP))
+```
+
+### 1.4 Table Summary - Walmart Locations among States
+
+```{r}
+table_a <- sort(table(wal$state),decreasing = TRUE)
+knitr::kable(table_a)
+```
+
+From the table we could see that the states with the most Walmart stores are Taxas, Florida, California. And Walmart is basically distributed nationwide, making it suitable as a study subject for policy evaluation.
+
+### 1.5 Variables Overview
+
+```{r}
+str(retail_new)
+summary(retail_new)
+```
+#### Variable Introduction
+
+The data includes 143,437 observations on 27 variables, including May 2021 Walmart store foot traffic and related campaign and vaccination data. Some of the key variables are as follows.
+
+(1) dayofmonth: Day of month in May, 2021.
+
+(2) daily_visitors: Daily visitors to Walmart.
+
+(3) STATEFP: Fip code of the state.
+
+(4) COUNTYFP: County fip code.
+
+(5) fips. fip code.
+
+(6) post: This variable equals to 0 before the policy change and equals to 1 after the policy change.
+
+(7) per_gop: Republican approval rating.
+
+(8) Estimated_hesitant: Estimated hesitancy to vaccinate, unwillingness or refusal to have oneself or one's child vaccinated.
+
+(9) trump: Measure of support for Trump to take office, this variable equals 1 if the Republican approval rating is higher than 0.5, and 0 if not.
+
+(10) vaccine_hes: Measures whether vaccine hesitancy is higher than the mean, if vaccine hesitancy is higher than the mean then this variable equals 1, otherwise it equals 0.
+
+## Part 2. Graphical EDA
+
+### 2.1 Overall Review 
+#### (1) Daily Visitor of Walmart Stores by County
+
+```{r}
+plot_usmap(data = wal_data, values = "daily_visitors", color="blue") + 
+  scale_fill_continuous(low = "white", high = "blue", name = "Daily Visitors", label = scales::comma) + 
+  theme(legend.position = "right") + 
+  labs(title = "Daily Visitor of Walmart Stores by County")
+```
+
+In terms of counties, Walmart is located in almost every county in the U.S., and traffic is more intense in the east than in the west.
+
+#### (2) Daily Visitor of Walmart Stores by State
+
+```{r}
+plot_usmap(data = wal, values = "daily_visitors", color = "blue") + 
+  scale_fill_continuous(low = "white", high = "blue", name = "Daily Visitors", label = scales::comma) + 
+  labs(title = "Daily Visitor of Walmart Stores by State") +
+  theme(legend.position = "right")
+```
+
+On a state-by-state basis, customer traffic varies slightly between states, but the differences are not so significant.
+
+### 2.2 Change Analysis 
+#### (1) Line Plot
+
+```{r Line Plot}
+# Depict the line plot
+walmart <- ggplot(retail_wal, aes(x=dayofmonth, y=average_foot_traffic))
+
+walmart + 
+  geom_line(aes(x= dayofmonth , y= average_foot_traffic ), color="purple") +
+  labs(title = "Time Series Plot of Average Foot Traffic (by day) in Walmart Stores",subtitle = "Date from 5.4 to 5.31",x = "Day of May",y = "Average Foot Traffic",caption="Source: SafeGraph Database") +
+  scale_x_continuous(breaks=seq(0,30,1)) +
+  geom_vline(xintercept=c(18), linetype="dotted") +
+  annotate("text", x=18, y=170, label="Reversal Date of Walmart", family="serif",fontface="italic", colour="darkblue", size=4)
+```
+
+As seen in graph above, on May 18, Walmart began to implement the reversal policy, and there was a clear change in the level of Walmart guest traffic before and after the policy was withdrawn: customer traffic showed an overall upward trend with the liberalization of the mask restriction, peaking at higher levels on the 23rd and 27th, and the trend continues, albeit with significant fluctuations. For the retail business and FMCG industry, this phenomenon makes sense: customers value not only the consumer product itself, but also many other factors such as service quality, consumer environment, etc. With the relaxation of the mask policy, consumers are likely to feel more relaxed and comfortable in the service atmosphere, have a higher degree of autonomy in their choices, and are therefore more likely to choose to go out shopping.
+
+#### (2) Boxplot
+
+```{r Boxplot}
+# Boxplot Analysis
+boxplot(retail_wal_2$average_foot_traffic ~ retail_wal_2$post, main="Average Foot Traffic Before and After Reversal", xlab="Reversal or Not", ylab="Average Foot Traffic")
+```
+
+The graph above shows the change in traffic before and after reversal more significantly, and it can be seen that the mean value of traffic increased overall and the maximum value also increased after the implementation of the mask reversal policy. This indicates that the reversal policy has a significant effect on the promotion of traffic. Of course, there may be other variables that have an effect, and the significance of this effect will be further demonstrated in the following section.
+
+#### (3) Time Series Plot
+
+```{r}
+# Depict the plot
+ggplot(plot_com)+geom_line(aes(x = dayofmonth, y = mean_visitors, group = state_name,color = factor(state_name) ), alpha = 0.7)+labs(title = "Time Series Plot of Average Foot Traffic (by day) for Each State",subtitle = "Date from 5.4 to 5.31",x = "Day of May",y = "Average Foot Traffic")+scale_x_continuous(breaks=seq(0,30,1))+geom_vline(xintercept=c(18), linetype="dotted")+annotate("text", x=18, y=96, label="Reversal Date of Walmart", family="serif",fontface="italic", colour="darkblue", size=4)+guides(color=guide_legend(title=NULL))+theme(legend.key.size = unit(8, "pt"), plot.margin=unit(rep(1,5),'cm'), legend.position = "bottom")
+```
+
+In this section, I visualized the daily data from different states to more visually observe the regionalized impact of the mask policy on consumer behavior and the overall impact. As can be seen in this figure, there is a more significant increase in customer visits in most states before and after the reversal date. We also note that there is a significant difference in customer baseline across states, with visits significantly higher in Hawaii than in other states. In terms of time, there are also significant differences by date, and there is a similar trend across states. Therefore, in the third part of the regression analysis, I selected individual and time fixed effects models to eliminate the effect of individual and time differentiation on the results.
+
+## Part 3. Correlation Analysis
+
+### 3.1 Correlation Analysis
+
+```{r}
+retail_cor <- cor(retail_final, use = "complete.obs")
+retail_cor
+pairs(retail_final)
+corrplot(retail_cor)
+```
+
+Here I performed the basic correlation test and it can be seen that there is some correlation in the key variables, and I will try to select independent variables for the subsequent study. In addition, it can be seen that the key variable POST is not significantly correlated with other variables, which lays a good foundation for the subsequent study.
+
+## Part 4. Regression Analysis
+
+### 4.1 Estimation Method
+
+In this section, I used a multiple linear regression model to investigate the effect of retail mask policy on consumer behavior. I selected store daily visitors as a measure of consumer behavior and set it as an explanatory variable. To investigate the effect of the policy reversal on consumer patterns, I generated a dummy variable post, specifically, post is defined as 1 for the sample before the policy reversal and 0 otherwise. Two dummy variables, trump and vaccine_hes, are also added to investigate whether partisanship and vaccine hesitancy affect to some extent the effect of the policy reversal. Specifically, within a state with more than half Republican support, trump_vs is defined as 1, otherwise 0. Vaccine hesitancy is defined as a high vaccine hesitancy area if the percentage of vaccine hesitancy exceeds the national average percentage, where vaccine_hes is defined as 1, otherwise 0. In addition, due to the US population is diverse and spans a large geographic area, so the effect has more pronounced differences between states in the U.S. Daily data also differ significantly by date, based on the above, therefore, this regression analysis controls for both time and individual fixed effects for the final regression model.
+
+### 4.2 Regression Model 1: Basic Regression with post
+
+Note: 
+The description section includes only explanations of models with fixed effects; models without fixed effects are only compared in order to demonstrate the validity of fixed effects.
+
+```{r Regression Analysis}
+# Run the regression (1)
+reg_model_lm1 <- lm(daily_visitors ~ post, data = retail_fips )
+# Add the fixed effect: the regression model (2)
+reg_model_lm2 <- lm(daily_visitors ~ post+ factor(STATEFP) + factor(dayofmonth), data = retail_fips)
+# Summary
+stargazer(reg_model_lm1, reg_model_lm2, omit = c("STATEFP","dayofmonth"), type="text")
+```
+
+As seen in the results of regression (2) , the coefficient of the variable of post is 17.1559, which is significant at the 1% level of significance, indicating that there is a large increase in consumer visits after the withdrawal of the retail mask policy and that this effect is significant. However, there is a serious omitted variable bias in this regression and there may be an interaction effect, so we added other variables.
+
+### 4.3 Regression Model 2: Adding Interactions
+
+Considering that the effect of mask policy on consumer behavior may depend on the values of other variables, I included interactions in the model in this part. In this way, I could better answer the question about how the effect of the policy reversal differed in counties that are more Republican or with higher vaccine hesitancy. I also added interaction terms to evaluate whether these two effects differ from each other.
+
+Note: In this section, I only show the results of the models with fixed effects and the models without fixed effects are shown separately at the end of this section.
+
+```{r}
+# Run the regression (1)
+reg_1 <- lm(daily_visitors ~ post + post:trump, data = retail_new)
+# Run the regression (2): regression (1) + fixed effect
+reg_1_f<- lm(daily_visitors ~ post + post:trump + factor(STATEFP)+factor(dayofmonth), data = retail_new)
+
+# Run the regression (3)
+reg_2 <- lm(daily_visitors ~ post + post:vaccine_hes, data = retail_new)
+# Run the regression (4): regression (3) + fixed effect
+reg_2_f<- lm(daily_visitors ~ post + post:vaccine_hes + factor(STATEFP)+factor(dayofmonth), data = retail_new)
+
+# Run the regression (5)
+reg_3 <- lm(daily_visitors ~ post + post:vaccine_hes + post:trump, data = retail_new)
+# Run the regression (6): regression (5) + fixed effect
+reg_3_f<- lm(daily_visitors ~ post + post:vaccine_hes + post:trump + factor(STATEFP)+factor(dayofmonth), data = retail_new)
+
+# Summary
+stargazer(reg_1_f, reg_2_f, reg_3_f, omit = c("STATEFP","dayofmonth"), type="text")
+```
+
+In regressions (1) and (2), I included the interaction terms: post`*`trump_vs and post`*`vaccine_hes. Because of the need to examine the dependence of the impact of the mask policy on the high level of Republican support and vaccine hesitancy, I generated two dummy variables for the regressions, respectively. From regression result (1), the coefficient of the variable of post is 17.1949, which is significant at 1% level of significance, but the interaction term of post`*`trump_vs is not significant. From regression result (2), the coefficient of the variable of post is 13.8497, which is significant at the 1% level of significance. The coefficient of the interaction term post`*`vaccine_hes is 5.9991, which is significant at the 1% level of significance. From these results, it is clear that the effect has a low dependence on partisan support and a high and significant dependence on vaccine hesitancy. Interestingly, the two interaction terms have opposite directions of effect on the effect of mask policy, which is also verified in the next regression.
+
+In regression (3), I included both interaction terms, the coefficient of the variable post is 17.5883, which is significant at the 1% level of significance, the coefficient of the interaction term post`*`trump_vs is -2.1054, which is significant at the 10% level of significance, and the coefficient of the interaction term post`*`vaccine_hes is 6.7305, which is significant at the 1% level of significance. It can be seen that mask policy is more significantly dependent on partisan bias as well as vaccine hesitancy for customer visits. In states with more Republicans, policy reversal has a negative effect on daily visitors, i.e., there will be less customer traffic. In states with higher vaccine hesitancy, a policy reversal would result in a more significant increase in daily visitors.
+
+Indeed, there is an effect of partisan bias on the population's wearing of masks, and this finding has been verified to some extent in the existing literature. A study by political science experts at the University of Pennsylvania (Gadarian et al, 2020) suggests that whether people are Democratic or Republican supporters has more influence on the strategies they adopt in response to the outbreak, such as keeping social distance and wearing masks, compared to the severity of the outbreak. The study points out that partisanship does not only represent the views of individual political behavior, such as voting, but is a fairly stable set of emotional orientations, social values and identities that profoundly influence the psychological and behavioral states of the American public, including attitudes and actions in response to the epidemic. The results of the study point out that epidemic-proofing behaviors such as wearing a mask or maintaining social distance are influenced by partisan affiliation 138 times more than the severity of the epidemic. Furthermore, in the United States, the Republican Party is generally considered to be a conservative party with a conservative classical economist approach to government, and therefore the decision-making behavior of its party supporters is also somewhat conservative, so that despite the withdrawal of the mask policy by retail brands, these consumers may instead reduce their store visits due to safety concerns, and therefore the impact is negative.
+
+In addition, vaccine hesitation is not uncommon in the United States. According to GlobeNewswire, a large number of Americans are now skeptical about receiving the new vaccine crown, and CNN has published an article saying that there is a "vaccine hesitation" in the U.S., which simply means that people are still skeptical about vaccination, mainly because they are worried about the effectiveness and safety of the vaccine. States with a higher degree of vaccine hesitancy may have a higher degree of free will to decide on their own whether to vaccinate or wear a mask. In such a case, with the implementation of the mask policy reversal, these states may be more willing to enter the retail market for consumption.
+
+#### Models without fixed effects
+
+```{r}
+stargazer(reg_1, reg_2, reg_3, omit = c("STATEFP","dayofmonth"), type="text")
+```
+
+## Part 5. Conclusions
+
+During a pandemic, it is important to study consumer behavior in response to mask policies, whether for retailers to anticipate consumer reactions to better implement necessary policies (provided they are safe), or for the CDC or national level to implement key policies.
+The impact of retailers' mask policies on consumers is evident from this study, so it is important for retailers to consider the practical implications and possible impact of their policies and to provide feedback based on the development of the epidemic. The same is true for the NCDC. In addition, the impact should take into account other factors, such as the demographic profile of each state, vaccine hesitancy, and partisan support.
