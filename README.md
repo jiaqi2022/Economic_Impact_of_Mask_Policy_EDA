@@ -2,7 +2,7 @@
 The Economic Impact of Retail Mask Policies
 
 ## Final Report:
-file:///Users/Doris/Desktop/MyLib/100_Study/110_CMU/2022-F%20Mini1/R%20for%20Analytics/Project/Final-Project_files/Final_Report.html
+http://htmlpreview.github.io/?https://github.com/jiaqi2022/Economic_Impact_of_Mask_Policy_EDA/blob/main/Final_Report.html
 
 ## Intro
 On May 13, 2021, the Centers for Disease Control and Prevention (CDC) announced that people who have completed the New Crown Pneumonia vaccination are no longer required to wear masks in most settings and are no longer required to maintain social distance from others. Major retail brands have reacted quickly to this mask reversal policy, and several major supermarket chains and merchants, including Walmart, have already rescinded or re-evaluated their mask requirements. It is not difficult to infer that the change in mask policy would have a significant impact on consumer psychology and consumer behavior. Therefore, in this project, I start from this mask reversal and use the mask reversal implemented by Walmart on May 18 as a sample to study how changes in retail policies regarding mask use affect consumer behavior. At the same time, we will consider how factors such as vaccination hesitancy and partisanship will play into this impact.
