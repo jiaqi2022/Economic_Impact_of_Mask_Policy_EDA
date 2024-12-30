@@ -2,7 +2,7 @@
 The Economic Impact of Retail Mask Policies
 
 ## Final Report:
-[Economic Impact of Mask Policy](https://jiaqi2022.github.io/Economic_Impact_of_Mask_Policy_EDA/)
+[Economic Impact of Mask Policy](https://htmlpreview.github.io/?https://github.com/jiaqi2022/Econ_Impact_of_Mask.github.io/blob/main/Final%20Project.html#part-2.-graphical-eda)
 
 ## Insights
 
